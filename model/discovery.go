@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/skyhackvip/service_discovery/configs"
+	"github.com/skyhackvip/service_discovery/pkg/errcode"
 	"github.com/skyhackvip/service_discovery/pkg/httputil"
 	"log"
+	"net/url"
 	"sync/atomic"
 	"time"
 )
@@ -17,6 +19,7 @@ type Discovery struct {
 	Nodes     atomic.Value
 }
 
+//discovery
 func NewDiscovery(config *configs.GlobalConfig) *Discovery {
 	//init discovery
 	dis := &Discovery{
@@ -24,18 +27,20 @@ func NewDiscovery(config *configs.GlobalConfig) *Discovery {
 		config:    config,
 		Registry:  NewRegistry(), //init registry
 	}
-	//other nodes
+	//new nodes
 	dis.Nodes.Store(NewNodes(config))
-	//sync
+	//instance sync
 	dis.sync()
 	//register current discovery
 	dis.regSelf()
+	//nodes sync
+	go dis.nodesProtect()
 	//exit protected mode
 	go dis.exitProtect()
 	return dis
 }
 
-//同步注册表
+//sync registry data
 func (dis *Discovery) sync() {
 	fmt.Println("sync")
 	nodes := dis.Nodes.Load().(*Nodes)
@@ -44,7 +49,6 @@ func (dis *Discovery) sync() {
 			continue
 		}
 		uri := fmt.Sprintf("http://%s%s", node.addr, configs.FetchAllURL)
-
 		resp, err := httputil.HttpPost(uri, nil)
 		if err != nil {
 			fmt.Println(err)
@@ -65,20 +69,20 @@ func (dis *Discovery) sync() {
 			continue
 		}
 
-		fmt.Println("获取到结果", res.Code, res.Message, len(res.Data))
+		log.Println("sync", res.Code, res.Message, len(res.Data))
 		dis.protected = false
 		for _, v := range res.Data {
 			for _, instance := range v {
-				fmt.Println("jieguo", instance.Addrs, instance.Hostname)
+				log.Println("jieguo", instance.Addrs, instance.Hostname)
 				//service registry
 				dis.Registry.Register(instance, instance.LatestTimestamp)
 			}
 		}
-
 	}
+	nodes.SetUp()
 }
 
-//注册自身，并30s发一次心跳
+//registry current as a service
 func (dis *Discovery) regSelf() {
 	//register
 	now := time.Now().UnixNano()
@@ -98,7 +102,7 @@ func (dis *Discovery) regSelf() {
 
 	//start ticker to keep alive
 	go func() {
-		ticker := time.NewTicker(30 * time.Second) //30 todo
+		ticker := time.NewTicker(configs.RenewInterval) //30 second
 		defer ticker.Stop()
 		for {
 			select {
@@ -114,8 +118,51 @@ func (dis *Discovery) regSelf() {
 	}()
 }
 
-//离开保护模式
+//update discovery nodes list
+func (dis *Discovery) nodesProtect() {
+	log.Println("nodes protect......")
+	var lastTimestamp int64
+	for {
+		log.Println("nodes protect", configs.DiscoveryAppId, lastTimestamp)
+		ch, err := dis.Registry.Polls(dis.config.Env, dis.config.Hostname, []string{configs.DiscoveryAppId}, []int64{lastTimestamp})
+		log.Println("nodes protect", err)
+		if err != nil && err == errcode.NotModified {
+			log.Println(err)
+			time.Sleep(configs.NodesProtectInterval)
+			continue
+		}
+		apps := <-ch
+		log.Println("nodews protect", apps)
+		fetchData, ok := apps[configs.DiscoveryAppId] //appid==Kavin.discovery all discovery node instance
+		if !ok || fetchData == nil {
+			return
+		}
+		var nodes []string
+		for _, instance := range fetchData.Instances {
+			for _, addr := range instance.Addrs {
+				u, err := url.Parse(addr)
+				if err == nil {
+					nodes = append(nodes, u.Host)
+				}
+			}
+		}
+		lastTimestamp = fetchData.LatestTimestamp
+
+		//config update new nodes
+		config := new(configs.GlobalConfig)
+		*config = *dis.config
+		config.Nodes = nodes
+
+		ns := NewNodes(config)
+		ns.SetUp()
+		dis.Nodes.Store(ns)
+		log.Println("discovery changed nodes")
+	}
+}
+
+//discovery exit protect after 1 minute
 func (dis *Discovery) exitProtect() {
-	time.Sleep(time.Second * 60)
+	time.Sleep(configs.ProtectTimeInterval)
 	dis.protected = false
+	log.Println("exit protect")
 }

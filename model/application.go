@@ -93,7 +93,7 @@ func (app *Application) GetAllInstances() []*Instance {
 func (app *Application) GetInstance(status uint32, latestTime int64) (*FetchData, *errcode.Error) {
 	app.lock.RLock()
 	defer app.lock.RUnlock()
-	if latestTime >= app.latestTimestamp {
+	if latestTime >= app.latestTimestamp { //not modify
 		return nil, errcode.NotModified
 	}
 	fetchData := FetchData{

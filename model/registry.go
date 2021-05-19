@@ -13,7 +13,17 @@ import (
 type Registry struct {
 	apps map[string]*Application //key=appid+env
 	lock sync.RWMutex
-	gd   *Guard
+	gd   *Guard //protect
+
+	conns map[string]*conn
+	cLock sync.RWMutex
+}
+
+type conn struct {
+	//	ch         chan map[string]*InstanceInfo
+	//	arg        ArgPolls
+	latestTime int64
+	count      int
 }
 
 func NewRegistry() *Registry {
@@ -95,7 +105,7 @@ func (r *Registry) Fetch(env, appid string, status uint32, latestTime int64) (*F
 	if !ok {
 		return nil, errcode.NotFound
 	}
-	return app.GetInstance(status, latestTime)
+	return app.GetInstance(status, latestTime) //err = not modify
 }
 
 //get all key=appid, value=[]*Instance
@@ -106,6 +116,50 @@ func (r *Registry) FetchAll() map[string][]*Instance {
 		rs[app.appid] = append(rs[app.appid], app.GetAllInstances()...)
 	}
 	return rs
+}
+
+//poll
+func (r *Registry) Polls(env, hostname string, appidArr []string, lastTimestampArr []int64) (chan map[string]*FetchData, *errcode.Error) {
+	var new bool
+	var ch chan map[string]*FetchData
+	instances := make(map[string]*FetchData, len(appidArr))
+	for idx, appid := range appidArr {
+		fetchData, err := r.Fetch(env, appid, configs.NodeStatusUp, lastTimestampArr[idx])
+		if err == errcode.NotFound {
+			log.Println("polls error") //todo
+			return nil, err            //continue ???
+		} else if err == nil { //modify
+			instances[appid] = fetchData
+			new = true
+		}
+	}
+	if new {
+		ch = make(chan map[string]*FetchData, 1)
+		ch <- instances
+		return ch, nil
+	}
+	//conn ????
+	/*
+		for _, appid := range appidArr {
+			key := fmt.Printf("%s.%s", env, appid)
+			r.cLock.Lock()
+			if _, ok := r.conns[key]; !ok {
+				r.conns[key] = &hosts{hosts: make(map[string]*conn, 1)}
+			}
+			hosts := r.conns[key]
+			r.cLock.Unlock()
+
+			conn, ok := hosts.hosts[hostname]
+			if !ok {
+
+			} else {
+
+			}
+			hosts.hosts[hostname] = conn
+		}
+
+	*/
+	return ch, nil
 }
 
 func (r *Registry) getApplication(appid, env string) (*Application, bool) {

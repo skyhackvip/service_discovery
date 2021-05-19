@@ -11,6 +11,7 @@ type Nodes struct {
 	selfAddr string
 }
 
+//new nodes
 func NewNodes(c *configs.GlobalConfig) *Nodes {
 	nodes := make([]*Node, 0, len(c.Nodes))
 	for _, addr := range c.Nodes {
@@ -23,7 +24,7 @@ func NewNodes(c *configs.GlobalConfig) *Nodes {
 	}
 }
 
-//同步其他节点
+//replicate to other nodes
 func (nodes *Nodes) Replicate(c *gin.Context, action configs.Action, instance *Instance) error {
 	log.Println("here", len(nodes.nodes))
 	if len(nodes.nodes) == 0 {
@@ -31,13 +32,14 @@ func (nodes *Nodes) Replicate(c *gin.Context, action configs.Action, instance *I
 	}
 	for _, node := range nodes.nodes {
 		if node.addr != nodes.selfAddr {
-			//异步发送
+			//go action
 			go nodes.action(c, node, action, instance)
 		}
 	}
 	return nil
 }
 
+//use node action
 func (nodes *Nodes) action(c *gin.Context, node *Node, action configs.Action, instance *Instance) {
 	switch action {
 	case configs.Register:
@@ -49,7 +51,7 @@ func (nodes *Nodes) action(c *gin.Context, node *Node, action configs.Action, in
 	}
 }
 
-//获取所有节点
+//get all nodes
 func (nodes *Nodes) AllNodes() []*Node {
 	nodeRs := make([]*Node, 0, len(nodes.nodes))
 	for _, node := range nodes.nodes {
@@ -60,4 +62,13 @@ func (nodes *Nodes) AllNodes() []*Node {
 		nodeRs = append(nodeRs, n)
 	}
 	return nodeRs
+}
+
+//set up current node
+func (nodes *Nodes) SetUp() {
+	for _, node := range nodes.nodes {
+		if node.addr == nodes.selfAddr {
+			node.status = configs.NodeStatusUp
+		}
+	}
 }
