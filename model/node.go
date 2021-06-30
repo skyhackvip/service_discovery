@@ -3,16 +3,16 @@ package model
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
+	//	"github.com/gin-gonic/gin"
 	"github.com/skyhackvip/service_discovery/configs"
 	"github.com/skyhackvip/service_discovery/pkg/errcode"
 	"github.com/skyhackvip/service_discovery/pkg/httputil"
 	"log"
 	"strconv"
+	"time"
 )
 
 //node is a special client
-//节点注册发现、心跳保持、注销
 type Node struct {
 	config      *configs.Config
 	addr        string
@@ -32,66 +32,68 @@ func NewNode(config *configs.GlobalConfig, addr string) *Node {
 	}
 }
 
-func (node *Node) Register(c *gin.Context, instance *Instance) error {
-	return node.call(c, node.registerURL, configs.Register, instance, nil)
+func (node *Node) Register(instance *Instance) error {
+	return node.call(node.registerURL, configs.Register, instance, nil)
 }
 
-func (node *Node) Cancel(c *gin.Context, instance *Instance) error {
-	return node.call(c, node.cancelURL, configs.Cancel, instance, nil)
+func (node *Node) Cancel(instance *Instance) error {
+	return node.call(node.cancelURL, configs.Cancel, instance, nil)
 }
 
-func (node *Node) Renew(c *gin.Context, instance *Instance) error {
+func (node *Node) Renew(instance *Instance) error {
 	var res *Instance
-	err := node.call(c, node.renewURL, configs.Renew, instance, &res)
+	err := node.call(node.renewURL, configs.Renew, instance, &res)
 	if err == errcode.ServerError {
-		log.Println("node renew error") //todo
-		node.status = configs.NodeStatusDown
+		log.Printf("node call %s ! renew error %s \n", node.renewURL, err)
+		node.status = configs.NodeStatusDown //node down
 		return err
 	}
 	if err == errcode.NotFound { //register
-		log.Println("node renew not found, register again")
-		err = node.call(c, node.registerURL, configs.Register, instance, nil)
-		return err
+		log.Printf("node call %s ! renew not found, register again \n", node.renewURL)
+		return node.call(node.registerURL, configs.Register, instance, nil)
+	}
+	if err == errcode.Conflict && res != nil {
+		return node.call(node.registerURL, configs.Register, res, nil)
 	}
 	return err
 }
 
-func (node *Node) call(c *gin.Context, uri string, action configs.Action, instance *Instance, data interface{}) error {
-	fmt.Println("call other server", uri, action)
+func (node *Node) call(uri string, action configs.Action, instance *Instance, data interface{}) error {
 	params := make(map[string]interface{})
 	params["env"] = instance.Env
 	params["appid"] = instance.AppId
 	params["hostname"] = instance.Hostname
-	params["replication"] = "true"
+	params["replication"] = true //broadcast stop here
 	switch action {
 	case configs.Register:
 		params["addrs"] = instance.Addrs
-		params["status"] = strconv.FormatUint(uint64(instance.Status), 10)
+		params["status"] = instance.Status
 		params["version"] = instance.Version
 		params["reg_timestamp"] = strconv.FormatInt(instance.RegTimestamp, 10)
 		params["dirty_timestamp"] = strconv.FormatInt(instance.DirtyTimestamp, 10)
 		params["latest_timestamp"] = strconv.FormatInt(instance.LatestTimestamp, 10)
 	case configs.Renew:
 		params["dirty_timestamp"] = strconv.FormatInt(instance.DirtyTimestamp, 10)
+		params["renew_timestamp"] = time.Now().UnixNano()
 	case configs.Cancel:
 		params["latest_timestamp"] = strconv.FormatInt(instance.LatestTimestamp, 10)
 	}
-
 	//request other server
 	resp, err := httputil.HttpPost(uri, params)
 	if err != nil {
-		log.Printf("node call %v err : %v \n", uri, err)
+		log.Println(err)
 		return err
 	}
 	res := Response{}
 	err = json.Unmarshal([]byte(resp), &res)
 	if err != nil {
-		log.Printf("node call %v err : %v \n", uri, err)
+		log.Println(err)
 		return err
 	}
-	if res.Code != 200 { //code
-		log.Printf("uri is (%v),response ccode (%v)", uri, res.Code)
+	if res.Code != configs.StatusOK { //code!=200
+		log.Printf("uri is (%v),response code (%v)", uri, res.Code)
+		json.Unmarshal([]byte(res.Data), data)
+		return errcode.Conflict
 	}
-	log.Println(res)
 	return nil
 }
