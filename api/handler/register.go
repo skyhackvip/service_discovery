@@ -38,7 +38,7 @@ func RegisterHandler(c *gin.Context) {
 		instance.DirtyTimestamp = req.DirtyTimestamp
 	}
 	global.Discovery.Registry.Register(instance, req.LatestTimestamp)
-	//from other server, Replication is true
+	//default do replicate. if request come from other server, req.Replication is true, ignore replicate.
 	if !req.Replication {
 		global.Discovery.Nodes.Load().(*model.Nodes).Replicate(configs.Register, instance)
 	}

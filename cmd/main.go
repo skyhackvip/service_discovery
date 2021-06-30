@@ -45,6 +45,8 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	<-quit
 	log.Println("shutdown discovery server...")
+	//cancel
+	global.Discovery.CancelSelf()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
