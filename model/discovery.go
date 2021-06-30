@@ -27,22 +27,26 @@ func NewDiscovery(config *configs.GlobalConfig) *Discovery {
 		config:    config,
 		Registry:  NewRegistry(), //init registry
 	}
-	//new nodes
+	//new nodes from config file
 	dis.Nodes.Store(NewNodes(config))
-	//instance sync
-	dis.sync()
-	//register current discovery
-	dis.regSelf()
-	//nodes sync
-	go dis.nodesProtect()
+
+	//sync data from other nodes
+	dis.initSync()
+
+	//register discovery
+	instance := dis.regSelf()
+	//renew discovery
+	go dis.renewTask(instance)
+
+	//nodes perception
+	go dis.nodesPerception()
 	//exit protected mode
 	go dis.exitProtect()
 	return dis
 }
 
 //sync registry data
-func (dis *Discovery) sync() {
-	fmt.Println("sync")
+func (dis *Discovery) initSync() {
 	nodes := dis.Nodes.Load().(*Nodes)
 	for _, node := range nodes.AllNodes() {
 		if node.addr == nodes.selfAddr {
@@ -51,7 +55,7 @@ func (dis *Discovery) sync() {
 		uri := fmt.Sprintf("http://%s%s", node.addr, configs.FetchAllURL)
 		resp, err := httputil.HttpPost(uri, nil)
 		if err != nil {
-			fmt.Println(err)
+			log.Println(err)
 			continue
 		}
 		var res struct {
@@ -64,17 +68,13 @@ func (dis *Discovery) sync() {
 			log.Printf("get from %v error : %v", uri, err)
 			continue
 		}
-		if res.Code != 200 { //todo success
+		if res.Code != configs.StatusOK {
 			log.Printf("get from %v error : %v", uri, res.Message)
 			continue
 		}
-
-		log.Println("sync", res.Code, res.Message, len(res.Data))
 		dis.protected = false
 		for _, v := range res.Data {
 			for _, instance := range v {
-				log.Println("jieguo", instance.Addrs, instance.Hostname)
-				//service registry
 				dis.Registry.Register(instance, instance.LatestTimestamp)
 			}
 		}
@@ -82,8 +82,9 @@ func (dis *Discovery) sync() {
 	nodes.SetUp()
 }
 
-//registry current as a service
-func (dis *Discovery) regSelf() {
+//register current discovery node
+func (dis *Discovery) regSelf() *Instance {
+	log.Println("### discovery node register self when start ###")
 	//register
 	now := time.Now().UnixNano()
 	instance := &Instance{
@@ -99,64 +100,78 @@ func (dis *Discovery) regSelf() {
 		DirtyTimestamp:  now,
 	}
 	dis.Registry.Register(instance, now)
+	dis.Nodes.Load().(*Nodes).Replicate(configs.Register, instance) //broadcast
+	return instance
+}
 
-	//start ticker to keep alive
-	go func() {
-		ticker := time.NewTicker(configs.RenewInterval) //30 second
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				log.Println("renew")
-				//renew
-				if _, err := dis.Registry.Renew(instance.Env, instance.AppId, instance.Hostname); err != nil { //err == ecode.NothingFound
-					//if renew error, register
-					dis.Registry.Register(instance, now) //now 未更新最新？？
-				}
+//renew current discovery node
+func (dis *Discovery) renewTask(instance *Instance) {
+	now := time.Now().UnixNano()
+	ticker := time.NewTicker(configs.RenewInterval) //30 second
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			log.Println("### discovery node renew every 30s ###")
+			_, err := dis.Registry.Renew(instance.Env, instance.AppId, instance.Hostname)
+			if err == errcode.NotFound {
+				dis.Registry.Register(instance, now)
+				dis.Nodes.Load().(*Nodes).Replicate(configs.Register, instance)
+			} else {
+				dis.Nodes.Load().(*Nodes).Replicate(configs.Renew, instance)
 			}
 		}
-	}()
+	}
+}
+
+func (dis *Discovery) CancelSelf() {
+	log.Println("### discovery node cancel self when exit ###")
+	dis.Registry.Cancel(dis.config.Env, configs.DiscoveryAppId, dis.config.Hostname, time.Now().UnixNano())
+	instance := &Instance{
+		Env:      dis.config.Env,
+		Hostname: dis.config.Hostname,
+		AppId:    configs.DiscoveryAppId,
+	}
+	log.Println("$$$$$$$$$$$干掉自己$$$$$$$$$$$$$")
+	log.Println(dis.config.Env, dis.config.Hostname, configs.DiscoveryAppId)
+	dis.Nodes.Load().(*Nodes).Replicate(configs.Cancel, instance) //broadcast
 }
 
 //update discovery nodes list
-func (dis *Discovery) nodesProtect() {
-	log.Println("nodes protect......")
+func (dis *Discovery) nodesPerception() {
 	var lastTimestamp int64
+	ticker := time.NewTicker(configs.NodePerceptionInterval)
+	defer ticker.Stop()
 	for {
-		log.Println("nodes protect", configs.DiscoveryAppId, lastTimestamp)
-		ch, err := dis.Registry.Polls(dis.config.Env, dis.config.Hostname, []string{configs.DiscoveryAppId}, []int64{lastTimestamp})
-		log.Println("nodes protect", err)
-		if err != nil && err == errcode.NotModified {
-			log.Println(err)
-			time.Sleep(configs.NodesProtectInterval)
-			continue
-		}
-		apps := <-ch
-		log.Println("nodews protect", apps)
-		fetchData, ok := apps[configs.DiscoveryAppId] //appid==Kavin.discovery all discovery node instance
-		if !ok || fetchData == nil {
-			return
-		}
-		var nodes []string
-		for _, instance := range fetchData.Instances {
-			for _, addr := range instance.Addrs {
-				u, err := url.Parse(addr)
-				if err == nil {
-					nodes = append(nodes, u.Host)
+		select {
+		case <-ticker.C:
+			log.Println("### discovery node protect tick ###")
+			log.Printf("### discovery nodes,len (%v) ###\n", len(dis.Nodes.Load().(*Nodes).AllNodes()))
+			fetchData, err := dis.Registry.Fetch(dis.config.Env, configs.DiscoveryAppId, configs.NodeStatusUp, lastTimestamp)
+			if err != nil || fetchData == nil {
+				continue
+			}
+			var nodes []string
+			for _, instance := range fetchData.Instances {
+				for _, addr := range instance.Addrs {
+					u, err := url.Parse(addr)
+					if err == nil {
+						nodes = append(nodes, u.Host)
+					}
 				}
 			}
+			lastTimestamp = fetchData.LatestTimestamp
+
+			//config update new nodes
+			config := new(configs.GlobalConfig)
+			*config = *dis.config
+			config.Nodes = nodes
+
+			ns := NewNodes(config)
+			ns.SetUp()
+			dis.Nodes.Store(ns)
+			log.Printf("### discovery protect change nodes,len (%v) ###\n", len(dis.Nodes.Load().(*Nodes).AllNodes()))
 		}
-		lastTimestamp = fetchData.LatestTimestamp
-
-		//config update new nodes
-		config := new(configs.GlobalConfig)
-		*config = *dis.config
-		config.Nodes = nodes
-
-		ns := NewNodes(config)
-		ns.SetUp()
-		dis.Nodes.Store(ns)
-		log.Println("discovery changed nodes")
 	}
 }
 
@@ -164,5 +179,5 @@ func (dis *Discovery) nodesProtect() {
 func (dis *Discovery) exitProtect() {
 	time.Sleep(configs.ProtectTimeInterval)
 	dis.protected = false
-	log.Println("exit protect")
+	log.Println("### discovery node exit protect after 60s ###")
 }

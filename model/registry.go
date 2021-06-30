@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"github.com/skyhackvip/service_discovery/configs"
+	//"github.com/skyhackvip/service_discovery/global"
 	"github.com/skyhackvip/service_discovery/pkg/errcode"
 	"log"
 	"math/rand"
@@ -14,20 +15,9 @@ type Registry struct {
 	apps map[string]*Application //key=appid+env
 	lock sync.RWMutex
 	gd   *Guard //protect
-
-	conns map[string]*conn
-	cLock sync.RWMutex
-}
-
-type conn struct {
-	//	ch         chan map[string]*InstanceInfo
-	//	arg        ArgPolls
-	latestTime int64
-	count      int
 }
 
 func NewRegistry() *Registry {
-	log.Println("new registry...")
 	r := &Registry{
 		apps: make(map[string]*Application),
 		gd:   new(Guard),
@@ -38,7 +28,6 @@ func NewRegistry() *Registry {
 
 //register
 func (r *Registry) Register(instance *Instance, latestTimestamp int64) (*Application, *errcode.Error) {
-	log.Println("start register...")
 	key := getKey(instance.AppId, instance.Env)
 	r.lock.RLock()
 	app, ok := r.apps[key]
@@ -56,13 +45,11 @@ func (r *Registry) Register(instance *Instance, latestTimestamp int64) (*Applica
 	r.lock.Lock()
 	r.apps[key] = app
 	r.lock.Unlock()
-
 	return app, nil
 }
 
 //renew
 func (r *Registry) Renew(env, appid, hostname string) (*Instance, *errcode.Error) {
-	log.Println("start renew...")
 	//find app
 	app, ok := r.getApplication(appid, env)
 	if !ok {
@@ -79,7 +66,6 @@ func (r *Registry) Renew(env, appid, hostname string) (*Instance, *errcode.Error
 
 //cancel
 func (r *Registry) Cancel(env, appid, hostname string, latestTimestamp int64) (*Instance, *errcode.Error) {
-	log.Println("start cancel...")
 	//find app
 	app, ok := r.getApplication(appid, env)
 	if !ok {
@@ -118,50 +104,6 @@ func (r *Registry) FetchAll() map[string][]*Instance {
 	return rs
 }
 
-//poll
-func (r *Registry) Polls(env, hostname string, appidArr []string, lastTimestampArr []int64) (chan map[string]*FetchData, *errcode.Error) {
-	var new bool
-	var ch chan map[string]*FetchData
-	instances := make(map[string]*FetchData, len(appidArr))
-	for idx, appid := range appidArr {
-		fetchData, err := r.Fetch(env, appid, configs.NodeStatusUp, lastTimestampArr[idx])
-		if err == errcode.NotFound {
-			log.Println("polls error") //todo
-			return nil, err            //continue ???
-		} else if err == nil { //modify
-			instances[appid] = fetchData
-			new = true
-		}
-	}
-	if new {
-		ch = make(chan map[string]*FetchData, 1)
-		ch <- instances
-		return ch, nil
-	}
-	//conn ????
-	/*
-		for _, appid := range appidArr {
-			key := fmt.Printf("%s.%s", env, appid)
-			r.cLock.Lock()
-			if _, ok := r.conns[key]; !ok {
-				r.conns[key] = &hosts{hosts: make(map[string]*conn, 1)}
-			}
-			hosts := r.conns[key]
-			r.cLock.Unlock()
-
-			conn, ok := hosts.hosts[hostname]
-			if !ok {
-
-			} else {
-
-			}
-			hosts.hosts[hostname] = conn
-		}
-
-	*/
-	return ch, nil
-}
-
 func (r *Registry) getApplication(appid, env string) (*Application, bool) {
 	key := getKey(appid, env)
 	r.lock.RLock()
@@ -186,10 +128,11 @@ func (r *Registry) evictTask() {
 	for {
 		select {
 		case <-ticker:
-			log.Println("ticker evict ...")
+			log.Println("### registry evict task every 60s ###")
 			r.gd.storeLastCount()
 			r.evict()
 		case <-resetTicker:
+			log.Println("### registry reset task every 15m ###")
 			var count int64
 			for _, app := range r.getAllApplications() {
 				count += int64(app.GetInstanceLen())
@@ -217,13 +160,11 @@ func (r *Registry) evict() {
 			}
 		}
 	}
-	log.Println("expired len", len(expiredInstances))
 	evictionLimit := registryLen - int(float64(registryLen)*configs.SelfProtectThreshold)
 	expiredLen := len(expiredInstances)
 	if expiredLen > evictionLimit {
 		expiredLen = evictionLimit
 	}
-
 	if expiredLen == 0 {
 		return
 	}
@@ -232,6 +173,10 @@ func (r *Registry) evict() {
 		expiredInstances[i], expiredInstances[j] = expiredInstances[j], expiredInstances[i]
 		expiredInstance := expiredInstances[i]
 		r.Cancel(expiredInstance.Env, expiredInstance.AppId, expiredInstance.Hostname, now)
+		//todo 取消广播
+		//global.Discovery.Nodes.Load().(*Nodes).Replicate(configs.Cancel, expiredInstance)
+		log.Printf("### evict instance (%v, %v,%v)###\n", expiredInstance.Env, expiredInstance.AppId, expiredInstance.Hostname)
+
 	}
 }
 

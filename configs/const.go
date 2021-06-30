@@ -37,5 +37,5 @@ const (
 	InstanceExpireDuration      = 90 * time.Second   //instance's renewTimestamp after this will be canceled
 	InstanceMaxExpireDuration   = 3600 * time.Second //instance's renewTimestamp after this will be canceled
 	ProtectTimeInterval         = 60 * time.Second   //two renew cycle
-	NodesProtectInterval        = 5 * time.Second    //nodesprotect
+	NodePerceptionInterval      = 5 * time.Second    //nodesprotect
 )
