@@ -32,7 +32,7 @@ func (app *Application) AddInstance(in *Instance, latestTimestamp int64) (*Insta
 		in.UpTimestamp = appIns.UpTimestamp
 		//dirtytimestamp
 		if in.DirtyTimestamp < appIns.DirtyTimestamp {
-			log.Println("register exist dirty timestamp ")
+			log.Println("register exist dirty timestamp")
 			in = appIns
 		}
 	}

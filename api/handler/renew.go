@@ -35,11 +35,10 @@ func RenewHandler(c *gin.Context) {
 	}
 
 	//replication to other server
-	if req.Replication {
-		global.Discovery.Nodes.Load().(*model.Nodes).Replicate(c, configs.Renew, instance)
+	if !req.Replication {
+		global.Discovery.Nodes.Load().(*model.Nodes).Replicate(configs.Renew, instance)
 	}
 
-	//???
 	//过期
 	if req.DirtyTimestamp > instance.DirtyTimestamp {
 		err = errcode.NotFound
@@ -47,6 +46,6 @@ func RenewHandler(c *gin.Context) {
 		err = errcode.Conflict
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"code": 0,
+		"code": configs.StatusOK,
 	})
 }

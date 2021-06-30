@@ -24,7 +24,7 @@ func RegisterHandler(c *gin.Context) {
 	}
 	//bind instance
 	instance := model.NewInstance(&req)
-	if instance.Status == 0 || instance.Status > 2 {
+	if instance.Status != configs.StatusReceive && instance.Status != configs.StatusNotReceive {
 		log.Println("register params status invalid")
 		err := errcode.ParamError
 		c.JSON(http.StatusOK, gin.H{
@@ -39,12 +39,11 @@ func RegisterHandler(c *gin.Context) {
 	}
 	global.Discovery.Registry.Register(instance, req.LatestTimestamp)
 	//from other server, Replication is true
-	log.Println("replicattion", req.Replication)
-	if req.Replication {
-		global.Discovery.Nodes.Load().(*model.Nodes).Replicate(c, configs.Register, instance)
+	if !req.Replication {
+		global.Discovery.Nodes.Load().(*model.Nodes).Replicate(configs.Register, instance)
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"code":    200,
+		"code":    configs.StatusOK,
 		"message": "",
 		"data":    "",
 	})

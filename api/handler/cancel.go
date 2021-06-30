@@ -30,11 +30,11 @@ func CancelHandler(c *gin.Context) {
 		return
 	}
 	//replication to other server
-	if req.Replication {
-		global.Discovery.Nodes.Load().(*model.Nodes).Replicate(c, configs.Cancel, instance)
+	if !req.Replication {
+		global.Discovery.Nodes.Load().(*model.Nodes).Replicate(configs.Cancel, instance)
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"code":    200,
+		"code":    configs.StatusOK,
 		"message": "",
 	})
 }

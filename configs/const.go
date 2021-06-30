@@ -5,8 +5,17 @@ import (
 )
 
 const (
-	NodeStatusUp = iota
+	NodeStatusUp = iota + 1
 	NodeStatusDown
+)
+
+const (
+	StatusOK = 200
+)
+
+const (
+	StatusReceive = iota + 1
+	StatusNotReceive
 )
 
 const (
