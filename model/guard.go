@@ -40,7 +40,7 @@ func (gd *Guard) incrCount() {
 }
 
 func (gd *Guard) storeLastCount() {
-	atomic.StoreInt64(&gd.lastRenewCount, atomic.SwapInt64(&gd.needRenewCount, 0))
+	atomic.StoreInt64(&gd.lastRenewCount, atomic.SwapInt64(&gd.renewCount, 0))
 }
 
 func (gd *Guard) selfProtectStatus() bool {
