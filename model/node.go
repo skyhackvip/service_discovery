@@ -91,7 +91,7 @@ func (node *Node) call(uri string, action configs.Action, instance *Instance, da
 		return err
 	}
 	if res.Code != configs.StatusOK { //code!=200
-		log.Printf("uri is (%v),response code (%v)", uri, res.Code)
+		log.Printf("uri is (%v),response code (%v)\n", uri, res.Code)
 		json.Unmarshal([]byte(res.Data), data)
 		return errcode.Conflict
 	}

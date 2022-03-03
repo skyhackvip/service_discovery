@@ -44,3 +44,8 @@ type RequestFetchs struct {
 	AppId  []string `form:"appid"`
 	Status uint32   `form:"status"`
 }
+
+//api nodes
+type RequestNodes struct {
+	Env string `form:"env"`
+}

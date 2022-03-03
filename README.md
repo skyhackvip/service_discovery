@@ -19,7 +19,9 @@ curl -XPOST http://127.0.0.1:6666/api/register -H 'Content-Type:application/json
 
 - 服务发现
 ```shell
-curl -XPOST http://127.0.0.1:6666/api/fetch -H 'Content-Type:application/json' -d'{"env":"dev", "appid":"testapp","hostname":"testhost"}'
+curl -XPOST http://127.0.0.1:6666/api/fetch -H 'Content-Type:application/json' -d'{"env":"dev", "appid":"testapp","status":1}'
+
+curl -XPOST http://127.0.0.1:6666/api/fetchall
 ```
 
 - 服务续约

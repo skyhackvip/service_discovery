@@ -12,5 +12,6 @@ func InitRouter() *gin.Engine {
 	router.POST("api/renew", handler.RenewHandler)
 	router.POST("api/cancel", handler.CancelHandler)
 	router.POST("api/fetchall", handler.FetchAllHandler)
+	router.POST("api/nodes", handler.NodesHandler)
 	return router
 }
