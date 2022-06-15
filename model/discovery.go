@@ -132,8 +132,6 @@ func (dis *Discovery) CancelSelf() {
 		Hostname: dis.config.Hostname,
 		AppId:    configs.DiscoveryAppId,
 	}
-	log.Println("$$$$$$$$$$$干掉自己$$$$$$$$$$$$$")
-	log.Println(dis.config.Env, dis.config.Hostname, configs.DiscoveryAppId)
 	dis.Nodes.Load().(*Nodes).Replicate(configs.Cancel, instance) //broadcast
 }
 
